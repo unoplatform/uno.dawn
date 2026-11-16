@@ -6,12 +6,12 @@ repository:
   # The name of the repository. Changing this will rename the repository
   #name: template
 
-  description: template for brand new github repositories 
+  description: Dawn (Google's WebGPU implementation) native libraries for Uno Platform
   homepage: https://platform.uno/
-  topics: uno, uno-platform, webassembly, wasm, uwp, mono, xamarin, csharp, first-timers-friendly
+  topics: uno-platform, webgpu, dawn
 
   # Either `true` to make the repository private, or `false` to make it public.
-  private: true
+  private: false
 
   has_issues: true
   has_projects: false
@@ -19,11 +19,11 @@ repository:
 
   has_downloads: true
 
-  default_branch: master
+  default_branch: main
 
-  allow_squash_merge: true
+  allow_squash_merge: false
   allow_merge_commit: false
-  allow_rebase_merge: false
+  allow_rebase_merge: true
 
 # Labels: define labels for Issues and Pull Requests
 labels:
