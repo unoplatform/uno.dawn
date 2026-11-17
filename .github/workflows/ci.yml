@@ -1,0 +1,251 @@
+name: CI
+
+# CI and release pipeline for the Uno.Dawn package, modeled on unoplatform/Uno.microsoft-ui-reactor
+# (ci-uno.yml), uno.monaco.editor and uno.resizetizer:
+#
+#   build + pack (nbgv version) -> sign (PackageSign environment)
+#     push to `main`             -> Uno feed (+ nuget.org once NUGET_ORG_DEV_PUBLISH is on; see publish_dev)
+#     push to `release/stable/*` -> Uno feed (Production approval) -> nuget.org (second Production approval) -> tag
+#
+# STARTING POINT: the native build and the packaging are not written yet.
+# - `detect` looks for the packaging (placeholder marker: nuget/Uno.Dawn.nuspec). While it is missing, pack,
+#   sign and publish are skipped, so the "Uno CI result" check still reports on every PR and nothing is published.
+# - `pack` is where the Dawn libraries are fetched/linked and packed. Jobs that build per platform
+#   (Windows, Linux, macOS, Android) can be added before it, with `pack` downloading their artifacts.
+
+on:
+  push:
+    branches:
+      - main
+      - release/stable/*
+  pull_request:
+    branches:
+      - main
+      - release/stable/*
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  # Never cancel a push build: it may be signing or publishing.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: 1
+  DOTNET_NOLOGO: 1
+  NUGET_XMLDOC_MODE: skip
+
+# Required secrets (org secrets shared with this repository):
+# - SIGN_AZURE_CLIENT_ID, SIGN_AZURE_TENANT_ID, SIGN_AZURE_SUBSCRIPTION_ID: Azure login for code signing (OIDC)
+# - SIGN_KEY_VAULT_URL, SIGN_KEY_VAULT_CERTIFICATE_ID: Key Vault certificate for code signing
+# - UNO_NUGET_FEED_API_KEY: API key for the Uno NuGet feed
+# - NUGET_ORG_API_KEY: API key for nuget.org
+# Repository variable:
+# - NUGET_ORG_DEV_PUBLISH: 'true' turns on the nuget.org push of dev packages from `main` (see publish_dev)
+
+jobs:
+  detect:
+    name: Detect the packaging
+    runs-on: ubuntu-latest
+    outputs:
+      packaging: ${{ steps.detect.outputs.packaging }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          sparse-checkout: nuget/Uno.Dawn.nuspec
+          sparse-checkout-cone-mode: false
+
+      # Placeholder marker: point it at whatever the packaging ends up being.
+      - name: Look for the packaging
+        id: detect
+        shell: bash
+        run: |
+          if [ -f nuget/Uno.Dawn.nuspec ]; then
+            echo "packaging=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "packaging=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::nuget/Uno.Dawn.nuspec is not on this branch yet, so the pack, sign and publish jobs are skipped."
+          fi
+
+  pack:
+    name: Pack
+    needs: detect
+    if: needs.detect.outputs.packaging == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.nbgv.outputs.SemVer2 }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          # nbgv computes the version height from the history.
+          fetch-depth: 0
+
+      - name: Determine version (NBGV)
+        id: nbgv
+        uses: dotnet/nbgv@f088059084cb5d872e9d1a994433ca6440c2bf72 # v0.4.2
+        with:
+          toolVersion: 3.8.118
+          setAllVars: true
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      # Placeholder: fetch the pinned Dawn release, link the native libraries, then pack them into artifacts/
+      # with version ${{ steps.nbgv.outputs.SemVer2 }}. Fails on purpose until it is written.
+      - name: Build and pack
+        run: |
+          Write-Error "The Dawn build and pack steps are not written yet (.github/workflows/ci.yml, job 'pack')."
+          exit 1
+
+      # Only Uno.Dawn* packages may leave this job: a wrong ID pushed to nuget.org can't be deleted.
+      - name: Check the package IDs
+        run: |
+          $packages = @(Get-ChildItem artifacts -Filter *.nupkg -ErrorAction SilentlyContinue)
+          $wrong = @($packages | Where-Object { $_.Name -notlike 'Uno.Dawn*' })
+          if ($packages.Count -eq 0 -or $wrong.Count -gt 0) {
+            Write-Error "Expected only Uno.Dawn packages, found: $($packages.Name -join ', ')"
+            exit 1
+          }
+
+      - name: Add NuGet summary
+        run: |
+          echo "### NuGet Package Summary" >> $env:GITHUB_STEP_SUMMARY
+          echo "Package version: ``${{ steps.nbgv.outputs.SemVer2 }}``" >> $env:GITHUB_STEP_SUMMARY
+
+      - name: Upload packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: NuGet
+          path: artifacts
+
+  # The single required check. Skipped jobs (no packaging on the branch yet) pass.
+  result:
+    name: Uno CI result
+    needs: [detect, pack]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail if a job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: |
+          echo "::error::A CI job failed or was cancelled."
+          exit 1
+
+      - name: Passed
+        run: echo "CI passed."
+
+  sign:
+    name: Sign
+    needs: [pack, result]
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/stable/'))
+    runs-on: windows-latest
+    environment: PackageSign
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      id-token: write # Azure login through OIDC
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          name: NuGet
+          path: artifacts
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5.4.0
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Install Sign CLI tool
+        run: dotnet tool install --tool-path . sign --version 0.9.1-beta.25278.1
+
+      - name: Az CLI login
+        uses: azure/login@v2
+        with:
+          allow-no-subscriptions: true
+          client-id: ${{ secrets.SIGN_AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.SIGN_AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.SIGN_AZURE_SUBSCRIPTION_ID }}
+
+      - name: Sign packages
+        run: >-
+          ./sign code azure-key-vault "artifacts/**/*.nupkg"
+          --publisher-name "Uno Platform"
+          --description "Uno.Dawn"
+          --description-url "https://github.com/${{ github.repository }}"
+          --azure-key-vault-url "${{ secrets.SIGN_KEY_VAULT_URL }}"
+          --azure-key-vault-certificate "${{ secrets.SIGN_KEY_VAULT_CERTIFICATE_ID }}"
+          --verbosity information
+
+      - name: Upload signed packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: NuGet-Signed
+          path: artifacts
+
+  publish_dev:
+    name: Publish Dev
+    needs: sign
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: Development
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Uno feed publish
+        uses: ./.github/actions/nuget-uno-publish
+        with:
+          token: ${{ secrets.UNO_NUGET_FEED_API_KEY }}
+
+      # Off until the repository variable NUGET_ORG_DEV_PUBLISH is 'true'. The org's nuget.org key can't create a
+      # new package ID: the first version of each ID is uploaded by hand, then the ID is added to the key's scope.
+      - name: nuget.org publish
+        if: vars.NUGET_ORG_DEV_PUBLISH == 'true'
+        uses: ./.github/actions/nuget-org-publish
+        with:
+          token: ${{ secrets.NUGET_ORG_API_KEY }}
+
+  # First approval: the Uno feed.
+  publish_release_uno:
+    name: Publish Internal Feed
+    needs: sign
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/stable/')
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Uno feed publish
+        uses: ./.github/actions/nuget-uno-publish
+        with:
+          token: ${{ secrets.UNO_NUGET_FEED_API_KEY }}
+
+  # Second approval: nuget.org, then tag the release.
+  publish_release_nuget_org:
+    name: Publish Production
+    needs: publish_release_uno
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/heads/release/stable/')
+    runs-on: ubuntu-latest
+    environment: Production
+    timeout-minutes: 15
+    permissions:
+      contents: write # push the release tag
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: nuget.org publish
+        uses: ./.github/actions/nuget-org-publish
+        with:
+          token: ${{ secrets.NUGET_ORG_API_KEY }}
+
+      - name: Tag release
+        uses: ./.github/actions/tag-release
