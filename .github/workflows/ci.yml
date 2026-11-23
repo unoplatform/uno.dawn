@@ -3,15 +3,14 @@ name: CI
 # CI and release pipeline for the Uno.Dawn package, modeled on unoplatform/Uno.microsoft-ui-reactor
 # (ci-uno.yml), uno.monaco.editor and uno.resizetizer:
 #
-#   build + pack (nbgv version) -> sign (PackageSign environment)
+#   native libraries (windows, linux, android, apple) -> pack (nbgv version) -> sign (PackageSign environment)
 #     push to `main`             -> Uno feed (+ nuget.org once NUGET_ORG_DEV_PUBLISH is on; see publish_dev)
 #     push to `release/stable/*` -> Uno feed (Production approval) -> nuget.org (second Production approval) -> tag
 #
-# STARTING POINT: the native build and the packaging are not written yet.
-# - `detect` looks for the packaging (placeholder marker: nuget/Uno.Dawn.nuspec). While it is missing, pack,
-#   sign and publish are skipped, so the "Uno CI result" check still reports on every PR and nothing is published.
-# - `pack` is where the Dawn libraries are fetched/linked and packed. Jobs that build per platform
-#   (Windows, Linux, macOS, Android) can be added before it, with `pack` downloading their artifacts.
+# The Dawn release built is the one pinned in dawn.json. Windows and Linux are built from Dawn's source; Android,
+# macOS and iOS are linked from Dawn's release archives (see build/ and README.md).
+# `detect` skips everything after it on a branch without nuget/Uno.Dawn.nuspec, so the "Uno CI result" check still
+# reports there.
 
 on:
   push:
@@ -69,9 +68,136 @@ jobs:
             echo "::notice::nuget/Uno.Dawn.nuspec is not on this branch yet, so the pack, sign and publish jobs are skipped."
           fi
 
+  # Native libraries, one job per platform group. Each uploads one folder per RID (see build/pack.py's payload).
+
+  windows:
+    name: Windows ${{ matrix.arch }} (from source)
+    needs: detect
+    if: needs.detect.outputs.packaging == 'true'
+    runs-on: windows-2022
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x64, arm64]
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Build and link
+        run: |
+          $cache = "${{ runner.temp }}/dawn"
+          $headers = python build/fetch.py headers $cache
+          python build/exports.py "$headers/include/dawn/webgpu.h" "$cache/exports"
+          ./build/build-source-windows.ps1 -Source "$cache/src" -Arch ${{ matrix.arch }} -Prefix "$cache/install"
+          ./build/link-windows.ps1 -Lib "$cache/install/lib/webgpu_dawn.lib" -Exports "$cache/exports" -Arch ${{ matrix.arch }} -Out "${{ runner.temp }}/payload/win-${{ matrix.arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dawn-win-${{ matrix.arch }}
+          path: ${{ runner.temp }}/payload
+
+  linux:
+    name: Linux ${{ matrix.arch }} (from source)
+    needs: detect
+    if: needs.detect.outputs.packaging == 'true'
+    # Dawn needs a recent clang; the Ubuntu 22.04 sysroot sets the glibc floor, not this image.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x64
+            triple: x86_64-linux-gnu
+          - arch: arm64
+            triple: aarch64-linux-gnu
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Build and link
+        run: |
+          set -euo pipefail
+          sudo apt-get install -y -qq clang lld llvm ninja-build
+          cache="${{ runner.temp }}/dawn"
+          headers=$(python3 build/fetch.py headers "$cache")
+          python3 build/exports.py "$headers/include/dawn/webgpu.h" "$cache/exports"
+          bash build/make-sysroot.sh "$cache/sysroot" ${{ matrix.arch }}
+          bash build/build-source-linux.sh "$cache/src" ${{ matrix.arch }} "$cache/sysroot" "$cache/install"
+          bash build/link-linux.sh "$cache/install/libwebgpu_dawn.a" "$cache/exports" "${{ runner.temp }}/payload/linux-${{ matrix.arch }}" ${{ matrix.triple }} "$cache/sysroot"
+
+      # The source tree holds Dawn's license and those of the dependencies built into the libraries; pack needs them,
+      # and the export lists, once.
+      - name: Collect licenses and exports
+        if: matrix.arch == 'x64'
+        run: |
+          set -euo pipefail
+          cache="${{ runner.temp }}/dawn"
+          mkdir -p "${{ runner.temp }}/extras/licenses"
+          cd "$cache/src"
+          find . -maxdepth 4 -type f \( -path ./LICENSE -o -path './third_party/*/LICENSE*' -o -path './third_party/*/src/LICENSE*' \) -exec cp --parents {} "${{ runner.temp }}/extras/licenses" \;
+          cp -r "$cache/exports" "${{ runner.temp }}/extras/exports"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dawn-linux-${{ matrix.arch }}
+          path: ${{ runner.temp }}/payload
+
+      - uses: actions/upload-artifact@v4
+        if: matrix.arch == 'x64'
+        with:
+          name: dawn-extras
+          path: ${{ runner.temp }}/extras
+
+  android:
+    name: Android
+    needs: detect
+    if: needs.detect.outputs.packaging == 'true'
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      # ANDROID_NDK_HOME comes with the image.
+      - name: Link
+        run: |
+          set -euo pipefail
+          cache="${{ runner.temp }}/dawn"
+          headers=$(python3 build/fetch.py headers "$cache")
+          python3 build/exports.py "$headers/include/dawn/webgpu.h" "$cache/exports"
+          android=$(python3 build/fetch.py android "$cache")
+          bash build/link-android.sh "$android" "$cache/exports" "${{ runner.temp }}/payload"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dawn-android
+          path: ${{ runner.temp }}/payload
+
+  apple:
+    name: macOS and iOS
+    needs: detect
+    if: needs.detect.outputs.packaging == 'true'
+    runs-on: macos-15
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Link
+        run: |
+          set -euo pipefail
+          cache="${{ runner.temp }}/dawn"
+          headers=$(python3 build/fetch.py headers "$cache")
+          python3 build/exports.py "$headers/include/dawn/webgpu.h" "$cache/exports"
+          apple=$(python3 build/fetch.py apple "$cache")
+          bash build/link-apple.sh "$apple" "$cache/exports" "${{ runner.temp }}/payload"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dawn-apple
+          path: ${{ runner.temp }}/payload
+
   pack:
     name: Pack
-    needs: detect
+    needs: [detect, windows, linux, android, apple]
     if: needs.detect.outputs.packaging == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
@@ -95,12 +221,24 @@ jobs:
         with:
           dotnet-version: 10.0.x
 
-      # Placeholder: fetch the pinned Dawn release, link the native libraries, then pack them into artifacts/
-      # with version ${{ steps.nbgv.outputs.SemVer2 }}. Fails on purpose until it is written.
-      - name: Build and pack
+      - name: Download the native libraries
+        uses: actions/download-artifact@v4
+        with:
+          pattern: dawn-*
+          path: ${{ runner.temp }}/artifacts
+
+      # Every platform's RID folders into one payload; the licenses and export lists stay apart.
+      - name: Pack
+        shell: bash
         run: |
-          Write-Error "The Dawn build and pack steps are not written yet (.github/workflows/ci.yml, job 'pack')."
-          exit 1
+          set -euo pipefail
+          artifacts="${{ runner.temp }}/artifacts"
+          payload="${{ runner.temp }}/payload"
+          mkdir -p "$payload"
+          for a in "$artifacts"/dawn-*/; do
+            [ "$(basename "$a")" = dawn-extras ] || cp -r "$a"* "$payload/"
+          done
+          python build/pack.py "$payload" "$artifacts/dawn-extras/exports" "$artifacts/dawn-extras/licenses" artifacts "${{ steps.nbgv.outputs.SemVer2 }}"
 
       # Only Uno.Dawn* packages may leave this job: a wrong ID pushed to nuget.org can't be deleted.
       - name: Check the package IDs
@@ -126,7 +264,7 @@ jobs:
   # The single required check. Skipped jobs (no packaging on the branch yet) pass.
   result:
     name: Uno CI result
-    needs: [detect, pack]
+    needs: [detect, windows, linux, android, apple, pack]
     if: always()
     runs-on: ubuntu-latest
     steps:
