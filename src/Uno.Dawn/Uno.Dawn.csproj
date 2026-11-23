@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+	<!--
+	The managed half of the package: what a WebGPU binding written against wgpu-native needs on Dawn (DawnLibrary).
+	`dotnet pack` packs it together with the native libraries through nuget/Uno.Dawn.nuspec; build/pack.py drives it.
+	-->
+	<PropertyGroup>
+		<TargetFramework>net10.0</TargetFramework>
+		<Nullable>enable</Nullable>
+		<AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+		<IsTrimmable>true</IsTrimmable>
+		<IsAotCompatible>true</IsAotCompatible>
+		<GenerateDocumentationFile>true</GenerateDocumentationFile>
+		<NuspecFile>..\..\nuget\Uno.Dawn.nuspec</NuspecFile>
+		<NuspecProperties>version=$(DawnPackageVersion);dawnTag=$(DawnTag);payload=$(DawnPayload)</NuspecProperties>
+		<!-- Native libraries outside lib/ are part of the point of this package. -->
+		<NoWarn>$(NoWarn);NU5100;NU5128</NoWarn>
+	</PropertyGroup>
+
+	<!-- In a target: the output folder isn't known yet when the properties above are evaluated. -->
+	<Target Name="_AddDawnOutputDir" BeforeTargets="GenerateNuspec" DependsOnTargets="Build">
+		<PropertyGroup>
+			<NuspecProperties>$(NuspecProperties);outputDir=$(TargetDir)</NuspecProperties>
+		</PropertyGroup>
+	</Target>
+</Project>
