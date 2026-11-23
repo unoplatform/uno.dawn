@@ -12,11 +12,18 @@
 		<repository type="git" url="https://github.com/unoplatform/uno.dawn" />
 		<description>Google's Dawn WebGPU implementation, built from Dawn release $dawnTag$ for every native platform the Uno Platform WebGPU backend runs on.</description>
 		<tags>uno webgpu dawn native</tags>
+		<dependencies>
+			<group targetFramework="net10.0" />
+		</dependencies>
 	</metadata>
 	<files>
 		<file src="uno.png" target="/" />
 		<file src="$payload$\LICENSE.txt" target="/" />
 		<file src="$payload$\README.md" target="/" />
+
+		<!-- outputDir ends with a separator. -->
+		<file src="$outputDir$Uno.Dawn.dll" target="lib\net10.0" />
+		<file src="$outputDir$Uno.Dawn.xml" target="lib\net10.0" />
 
 		<!-- Loaded by name ("webgpu") from runtimes/<rid>/native, so default [DllImport] resolution finds it. One folder per
 		     RID, each holding just its library; pack.py checks they are all there. -->

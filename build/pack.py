@@ -65,7 +65,7 @@ def main():
     with open(os.path.join(exports, "webgpu_dawn.def")) as d, open(os.path.join(staging, "dawn-ios.symbols"), "w", newline="\n") as f:
         f.writelines(line.strip() + "\n" for line in d if line.startswith("    "))
 
-    subprocess.run(["dotnet", "pack", os.path.join(nuget, "Uno.Dawn.csproj"),
+    subprocess.run(["dotnet", "pack", os.path.join(nuget, "..", "src", "Uno.Dawn", "Uno.Dawn.csproj"), "-c", "Release",
                     "-o", out, f"-p:DawnPackageVersion={version}", f"-p:DawnTag={tag}", f"-p:DawnPayload={staging}"], check=True)
     print(f"Packed Uno.Dawn {version} (Dawn {tag}) into {out}")
 

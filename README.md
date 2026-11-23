@@ -14,6 +14,8 @@ Native libraries of [Dawn](https://dawn.googlesource.com/dawn), Google's WebGPU 
 
 Dawn's releases ship static libraries only, so every shared library is linked here, exporting the functions of `webgpu.h`.
 
+The package also carries `Uno.Dawn.dll` ([`src/Uno.Dawn`](src/Uno.Dawn)), what a WebGPU binding written against wgpu-native needs to run on Dawn: telling the two libraries apart, creating a Dawn instance (its C++ descriptor laid out for each ABI), and stand-ins for the wgpu-native extensions Dawn lacks, such as `wgpuDevicePoll`. It calls Dawn through the exports of a library handle the caller passes, so it works wherever the caller found the library.
+
 ## Updating Dawn
 
 The Dawn release is pinned in [`dawn.json`](dawn.json): the release tag and its commit. Change both to move to another release; CI builds and packs every platform from them.
