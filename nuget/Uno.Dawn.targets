@@ -1,7 +1,8 @@
 <Project>
 
 	<!--
-	Dawn as the WebGPU library (the default; UnoWebGpuNative=WgpuNative selects wgpu-native instead).
+	Dawn as the WebGPU library, when UnoWebGpuNative is Dawn. The Uno Platform WebGPU package sets that default and
+	rejects other values than Dawn and WgpuNative; with WgpuNative, Dawn's libraries are left out of the app.
 
 	Every platform but iOS loads Dawn from runtimes/<rid>/native, which needs nothing here. iOS apps cannot load a
 	library from outside the bundle, so Dawn is linked statically into the app image and the binding finds its
@@ -14,7 +15,7 @@
 
 	<Target Name="_UnoWebGpuLinkDawnIos"
 			BeforeTargets="_SanitizeNativeReferences;_ExpandNativeReferences;_ResolveAssemblies;BeforeBuild"
-			Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' And '$(UnoWebGpuNative)' != 'WgpuNative'">
+			Condition="$([MSBuild]::GetTargetPlatformIdentifier('$(TargetFramework)')) == 'ios' And '$(UnoWebGpuNative)' == 'Dawn'">
 		<PropertyGroup>
 			<!-- The RID is empty on the outer restore/build pass; default to the device slice so the item exists. -->
 			<_UnoDawnIosRid>$(RuntimeIdentifier)</_UnoDawnIosRid>
