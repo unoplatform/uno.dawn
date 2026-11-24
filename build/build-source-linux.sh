@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Builds Dawn's static library from source for Linux x64 or arm64, with clang against an Ubuntu 22.04 sysroot (see
 # make-sysroot.sh). Same configuration as Dawn's release build (.github/workflows/dawn-ci.cmake), without samples, tests
-# or tools.
+# or tools, and built for size with ThinLTO (see README.md): link it with link-linux.sh, which links with lld.
 # Usage: build-source-linux.sh <dir to clone into> <x64|arm64> <sysroot> <out dir> [dir holding ld.lld]
 # Writes <out>/libwebgpu_dawn.a. Then: link-linux.sh <out>/libwebgpu_dawn.a ... with the same target and sysroot.
 set -euo pipefail
@@ -23,6 +23,7 @@ if [ "$(git -C "$src" rev-parse HEAD 2>/dev/null)" != "$commit" ]; then
 fi
 
 build="$src/out/linux-$arch"
+size_flags="-Os -ffunction-sections -fdata-sections -flto=thin -DNDEBUG"
 mkdir -p "$build"
 linker="-fuse-ld=lld"
 [ -n "$lld_dir" ] && linker="$linker --ld-path=$lld_dir/ld.lld"
@@ -50,7 +51,9 @@ cmake -S "$src" -B "$build" -G Ninja \
 	-DCMAKE_C_COMPILER_LAUNCHER= -DCMAKE_CXX_COMPILER_LAUNCHER= \
 	-DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC \
 	-DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_USE_GLFW=OFF -DDAWN_USE_WAYLAND=OFF \
-	-DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF -DTINT_BUILD_IR_BINARY=OFF -DDAWN_BUILD_PROTOBUF=OFF
+	-DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF -DTINT_BUILD_IR_BINARY=OFF -DDAWN_BUILD_PROTOBUF=OFF \
+	-DDAWN_ENABLE_SPIRV_VALIDATION=OFF -DTINT_BUILD_SPV_READER=OFF \
+	-DCMAKE_C_FLAGS_RELEASE="$size_flags" -DCMAKE_CXX_FLAGS_RELEASE="$size_flags"
 cmake --build "$build" --target webgpu_dawn
 mkdir -p "$out"
 cp "$(find "$build" -name libwebgpu_dawn.a | head -1)" "$out/"

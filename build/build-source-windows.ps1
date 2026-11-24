@@ -1,6 +1,7 @@
 # Builds Dawn's static library from source for Windows. Dawn's release covers x64 only, and against the shared C++
 # runtime; this one links the runtime statically, so the DLL does not need the Visual C++ redistributable.
-# Same configuration as Dawn's own release build (.github/workflows/dawn-ci.cmake), without samples, tests or tools.
+# Same configuration as Dawn's own release build (.github/workflows/dawn-ci.cmake), without samples, tests or tools,
+# and built for size (see README.md).
 # Usage: build-source-windows.ps1 -Source <dir to clone into> -Arch arm64 -Prefix <install dir>
 # Then: link-windows.ps1 -Lib <Prefix>\lib\webgpu_dawn.lib -Arch arm64 ...
 param(
@@ -36,7 +37,9 @@ cmake -S $Source -B $build -G 'Visual Studio 17 2022' -A $platform `
 	-DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC `
 	-DDAWN_USE_BUILT_DXC=OFF `
 	-DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_USE_GLFW=OFF `
-	-DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF -DTINT_BUILD_IR_BINARY=OFF -DDAWN_BUILD_PROTOBUF=OFF
+	-DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF -DTINT_BUILD_IR_BINARY=OFF -DDAWN_BUILD_PROTOBUF=OFF `
+	-DDAWN_ENABLE_SPIRV_VALIDATION=OFF -DTINT_BUILD_SPV_READER=OFF `
+	'-DCMAKE_C_FLAGS_RELEASE=/O1 /Gy /Gw /DNDEBUG' '-DCMAKE_CXX_FLAGS_RELEASE=/O1 /Gy /Gw /DNDEBUG'
 if ($LASTEXITCODE -ne 0) { throw "configure failed ($LASTEXITCODE)" }
 cmake --build $build --config Release --target webgpu_dawn --parallel
 if ($LASTEXITCODE -ne 0) { throw "build failed ($LASTEXITCODE)" }

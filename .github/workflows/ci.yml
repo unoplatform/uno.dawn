@@ -7,8 +7,8 @@ name: CI
 #     push to `main`             -> Uno feed (+ nuget.org once NUGET_ORG_DEV_PUBLISH is on; see publish_dev)
 #     push to `release/stable/*` -> Uno feed (Production approval) -> nuget.org (second Production approval) -> tag
 #
-# The Dawn release built is the one pinned in dawn.json. Windows and Linux are built from Dawn's source; Android,
-# macOS and iOS are linked from Dawn's release archives (see build/ and README.md).
+# The Dawn release built is the one pinned in dawn.json. Windows, Linux and Android are built from Dawn's source, for
+# size; macOS and iOS are linked from Dawn's release archives (see build/ and README.md).
 # `detect` skips everything after it on a branch without nuget/Uno.Dawn.nuspec, so the "Uno CI result" check still
 # reports there.
 
@@ -149,27 +149,32 @@ jobs:
           path: ${{ runner.temp }}/extras
 
   android:
-    name: Android
+    name: Android ${{ matrix.abi }} (from source)
     needs: detect
     if: needs.detect.outputs.packaging == 'true'
-    runs-on: ubuntu-22.04
-    timeout-minutes: 60
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        abi: [arm64-v8a, armeabi-v7a, x86_64, x86]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       # ANDROID_NDK_HOME comes with the image.
-      - name: Link
+      - name: Build and link
         run: |
           set -euo pipefail
+          sudo apt-get install -y -qq ninja-build
           cache="${{ runner.temp }}/dawn"
           headers=$(python3 build/fetch.py headers "$cache")
           python3 build/exports.py "$headers/include/dawn/webgpu.h" "$cache/exports"
-          android=$(python3 build/fetch.py android "$cache")
-          bash build/link-android.sh "$android" "$cache/exports" "${{ runner.temp }}/payload"
+          bash build/build-source-android.sh "$cache/src" "$cache/install" ${{ matrix.abi }}
+          bash build/link-android.sh "$cache/install" "$cache/exports" "${{ runner.temp }}/payload" ${{ matrix.abi }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dawn-android
+          name: dawn-android-${{ matrix.abi }}
           path: ${{ runner.temp }}/payload
 
   apple:
