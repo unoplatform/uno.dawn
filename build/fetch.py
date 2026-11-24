@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Downloads and unpacks one of the pinned Dawn release's prebuilt archives.
+"""Downloads and unpacks one of the pinned Dawn release's archives: its headers, the only part not built here.
 
-Usage: fetch.py <android|apple|headers> <output dir>
+Usage: fetch.py headers <output dir>
 Prints the directory the archive unpacked to. Version: dawn.json at the repository root.
 """
 import json
@@ -11,8 +11,6 @@ import tarfile
 import urllib.request
 
 ASSETS = {
-    "android": "dawn-android-{commit}.tar.gz",
-    "apple": "dawn-apple-{commit}.xcframework.tar.gz",
     "headers": "dawn-headers-{commit}.tar.gz",
 }
 
