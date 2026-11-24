@@ -208,7 +208,7 @@ public static unsafe class DawnLibrary
 	{
 		private static delegate* unmanaged[Cdecl]<nint, nint> _createInstance;
 		private static delegate* unmanaged[Cdecl]<nint, nuint, nint, void> _queueSubmit;
-		private static delegate* unmanaged[Cdecl]<nint, QueueWorkDoneCallbackInfo, ulong> _queueOnSubmittedWorkDone;
+		private static delegate* unmanaged[Cdecl]<nint, QueueWorkDoneCallbackInfo, Future> _queueOnSubmittedWorkDone;
 		private static delegate* unmanaged[Cdecl]<nint, nint> _deviceGetQueue;
 		private static delegate* unmanaged[Cdecl]<nint, void> _queueRelease;
 		private static delegate* unmanaged[Cdecl]<nint, nuint, nint, ulong, uint> _instanceWaitAny;
@@ -218,7 +218,7 @@ public static unsafe class DawnLibrary
 		{
 			_createInstance = (delegate* unmanaged[Cdecl]<nint, nint>)NativeLibrary.GetExport(library, "wgpuCreateInstance");
 			_queueSubmit = (delegate* unmanaged[Cdecl]<nint, nuint, nint, void>)NativeLibrary.GetExport(library, "wgpuQueueSubmit");
-			_queueOnSubmittedWorkDone = (delegate* unmanaged[Cdecl]<nint, QueueWorkDoneCallbackInfo, ulong>)NativeLibrary.GetExport(library, "wgpuQueueOnSubmittedWorkDone");
+			_queueOnSubmittedWorkDone = (delegate* unmanaged[Cdecl]<nint, QueueWorkDoneCallbackInfo, Future>)NativeLibrary.GetExport(library, "wgpuQueueOnSubmittedWorkDone");
 			_deviceGetQueue = (delegate* unmanaged[Cdecl]<nint, nint>)NativeLibrary.GetExport(library, "wgpuDeviceGetQueue");
 			_queueRelease = (delegate* unmanaged[Cdecl]<nint, void>)NativeLibrary.GetExport(library, "wgpuQueueRelease");
 			_instanceWaitAny = (delegate* unmanaged[Cdecl]<nint, nuint, nint, ulong, uint>)NativeLibrary.GetExport(library, "wgpuInstanceWaitAny");
@@ -229,8 +229,9 @@ public static unsafe class DawnLibrary
 
 		public static void QueueSubmit(nint queue, nuint count, nint commands) => _queueSubmit(queue, count, commands);
 
-		// Returns the WGPUFuture's id: the struct is a single uint64, returned in a register.
-		public static ulong QueueOnSubmittedWorkDone(nint queue, QueueWorkDoneCallbackInfo info) => _queueOnSubmittedWorkDone(queue, info);
+		// Returns the WGPUFuture's id. The struct must be returned as a struct: 32-bit ABIs (armeabi-v7a, x86) return it
+		// through a hidden pointer, not in the registers a bare uint64 uses.
+		public static ulong QueueOnSubmittedWorkDone(nint queue, QueueWorkDoneCallbackInfo info) => _queueOnSubmittedWorkDone(queue, info).Id;
 
 		public static nint DeviceGetQueue(nint device) => _deviceGetQueue(device);
 
@@ -250,6 +251,12 @@ public static unsafe class DawnLibrary
 		public nuint RequiredFeatureCount;
 		public nint RequiredFeatures;
 		public nint RequiredLimits;
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	private struct Future
+	{
+		public ulong Id;
 	}
 
 	[StructLayout(LayoutKind.Sequential)]
