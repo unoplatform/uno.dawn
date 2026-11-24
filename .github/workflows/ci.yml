@@ -7,8 +7,8 @@ name: CI
 #     push to `main`             -> Uno feed (+ nuget.org once NUGET_ORG_DEV_PUBLISH is on; see publish_dev)
 #     push to `release/stable/*` -> Uno feed (Production approval) -> nuget.org (second Production approval) -> tag
 #
-# The Dawn release built is the one pinned in dawn.json. Windows, Linux and Android are built from Dawn's source, for
-# size; macOS and iOS are linked from Dawn's release archives (see build/ and README.md).
+# The Dawn release built is the one pinned in dawn.json. Every platform is built from Dawn's source, for size; only
+# the headers come from Dawn's release archives (see build/ and README.md).
 # `detect` skips everything after it on a branch without nuget/Uno.Dawn.nuspec, so the "Uno CI result" check still
 # reports there.
 
@@ -178,26 +178,31 @@ jobs:
           path: ${{ runner.temp }}/payload
 
   apple:
-    name: macOS and iOS
+    name: Apple ${{ matrix.slice }} (from source)
     needs: detect
     if: needs.detect.outputs.packaging == 'true'
     runs-on: macos-15
-    timeout-minutes: 60
+    timeout-minutes: 180
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [macos, ios, iossimulator]
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
-      - name: Link
+      - name: Build and link
         run: |
           set -euo pipefail
+          command -v ninja >/dev/null || brew install ninja
           cache="${{ runner.temp }}/dawn"
           headers=$(python3 build/fetch.py headers "$cache")
           python3 build/exports.py "$headers/include/dawn/webgpu.h" "$cache/exports"
-          apple=$(python3 build/fetch.py apple "$cache")
-          bash build/link-apple.sh "$apple" "$cache/exports" "${{ runner.temp }}/payload"
+          bash build/build-source-apple.sh "$cache/src" "$cache/install" ${{ matrix.slice }}
+          bash build/link-apple.sh "$cache/install" "$cache/exports" "${{ runner.temp }}/payload" ${{ matrix.slice }}
 
       - uses: actions/upload-artifact@v4
         with:
-          name: dawn-apple
+          name: dawn-apple-${{ matrix.slice }}
           path: ${{ runner.temp }}/payload
 
   pack:
