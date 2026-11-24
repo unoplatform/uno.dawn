@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 # Links Dawn's static library into libwebgpu.so, exporting the webgpu.h API.
 # Usage: link-linux.sh <libwebgpu_dawn.a> <dir with webgpu_dawn.map> <out dir> [target triple] [sysroot]
-# With a target triple (x86_64-linux-gnu, aarch64-linux-gnu) it links with clang and lld against the sysroot; LD_PATH,
-# when set, points clang at an ld.lld outside the PATH.
+# With a target triple (x86_64-linux-gnu, aarch64-linux-gnu) it links with clang and lld against the sysroot, finishing
+# the ThinLTO of a build-source-linux.sh library; LD_PATH, when set, points clang at an ld.lld outside the PATH.
 # Symbol versions are bound here, so the glibc linked against sets the floor: link against the oldest one supported.
 set -euo pipefail
 lib=$1; exports=$2; out=$3; target=${4:-}; sysroot=${5:-}
 here=$(cd "$(dirname "$0")" && pwd)
 if [ -n "$target" ]; then
 	flags=(--target="$target" --sysroot="$sysroot")
-	link_flags=(-fuse-ld=lld ${LD_PATH:+--ld-path=$LD_PATH})
+	link_flags=(-fuse-ld=lld ${LD_PATH:+--ld-path=$LD_PATH} -flto=thin -Wl,--icf=all)
 	strip_tool=llvm-strip
 	command -v llvm-strip >/dev/null || strip_tool=$(ls /usr/bin/llvm-strip-* 2>/dev/null | head -1)
 else
